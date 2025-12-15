@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$HOME/slam"
+SCRIPTS="$ROOT/scripts"
+SDK="$ROOT/robotcar-dataset-sdk-3.1"
+DATA="$ROOT/sample"
+EXTR="$SDK/extrinsics"
+MODELS="$SDK/models"
+OUTPUT="$ROOT/output"
+
+mkdir -p "$OUTPUT"
+
+# Shared experiment config
+DURATION_S=10.0       # seconds of data from start of traversal
+FRAME_STRIDE=2        # use every Nth camera frame within that window
+MAX_FRAMES=10         # cap on number of frames
+LEFT_STREAM="stereo/left"
+RIGHT_STREAM="stereo/right"
+
+INTR="$OUTPUT/ba_intrinsics_stereo_left.json"
+
+echo "[0/3] Dumping camera intrinsics..."
+python3 "$SCRIPTS/dump_intrinsics.py" \
+  --dataset_root "$DATA" \
+  --models_dir "$MODELS" \
+  --camera_stream stereo/left \
+  --output "$INTR"
+
+echo "[1/3] Building pointcloud (duration=${DURATION_S}s)..."
+python3 "$SCRIPTS/make_pointcloud.py" \
+  --dataset_root "$DATA" \
+  --extrinsics_dir "$EXTR" \
+  --lidar lms_front \
+  --poses_file gps/ins.csv \
+  --duration "$DURATION_S" \
+  --output "$OUTPUT/pointcloud.npz"
+
+echo "[2/3] Building ORB-stereo BA dataset (duration=${DURATION_S}s, stride=${FRAME_STRIDE}, max_frames=${MAX_FRAMES})"
+python3 "$ROOT/scripts/make_ba_dataset_orb_stereo.py" \
+  --dataset_root "$DATA" \
+  --extrinsics_dir "$EXTR" \
+  --models_dir "$MODELS" \
+  --poses_file gps/ins.csv \
+  --left_stream "$LEFT_STREAM" \
+  --right_stream "$RIGHT_STREAM" \
+  --left_timestamps "$DATA/stereo.timestamps" \
+  --right_timestamps "$DATA/stereo.timestamps" \
+  --duration "$DURATION_S" \
+  --frame_stride "$FRAME_STRIDE" \
+  --max_frames "$MAX_FRAMES" \
+  --output_prefix "$OUTPUT/ba_robotcar"
+
+#python3 "$SCRIPTS/make_ba_dataset.py" \
+#  --dataset_root "$DATA" \
+#  --extrinsics_dir "$EXTR" \
+#  --models_dir "$MODELS" \
+#  --pointcloud_npz "$OUTPUT/pointcloud.npz" \
+#  --lidar lms_front \
+#  --camera_stream mono_left \
+#  --poses_file gps/ins.csv \
+#  --duration "$DURATION_S" \
+#  --frame_stride "$FRAME_STRIDE" \
+#  --max_frames "$MAX_FRAMES" \
+#  --output_prefix "$OUTPUT/ba_robotcar"
+
+echo "[3/3] Done."
+echo "Created:"
+echo "  $OUTPUT/pointcloud.npz"
+echo "  $OUTPUT/ba_robotcar_poses.txt"
+echo "  $OUTPUT/ba_robotcar_points.txt"
+echo "  $OUTPUT/ba_robotcar_observations.txt"
+echo "  $OUTPUT/ba_intrinsics_stereo_left.json"
+
+cd ~/slam && rm -rf build && mkdir build && cd build && cmake .. && make -j$(nproc) && ./ba_module && cd ..

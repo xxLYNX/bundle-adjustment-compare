@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Determine platform
+PLATFORM="linux"
+if [[ $# -gt 0 ]]; then
+  case $1 in
+    -win|--windows)
+      PLATFORM="windows"
+      shift
+      ;;
+    -linux|--linux)
+      PLATFORM="linux"
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Usage: $0 [-win|--windows] [-linux|--linux]"
+      exit 1
+      ;;
+  esac
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+echo "========================================="
+echo "  Bundle Adjustment Setup"
+echo "========================================="
+echo "Platform: $PLATFORM"
+echo "Directory: $SCRIPT_DIR"
+echo ""
+
+# Check for Python
+if ! command -v python3 &> /dev/null; then
+    echo "ERROR: python3 not found!"
+    if [[ "$PLATFORM" == "linux" ]]; then
+        echo "Install with: sudo apt-get install python3 python3-venv python3-pip"
+    else
+        echo "Install Python from: https://www.python.org/downloads/"
+    fi
+    exit 1
+fi
+
+PYTHON_VERSION=$(python3 --version)
+echo "✓ Found $PYTHON_VERSION"
+
+# Create virtual environment
+if [[ -d "venv" ]]; then
+    echo "⚠ Virtual environment already exists at venv/"
+    read -p "Do you want to recreate it? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo "Removing old venv..."
+        rm -rf venv
+    else
+        echo "Using existing venv..."
+    fi
+fi
+
+if [[ ! -d "venv" ]]; then
+    echo "Creating virtual environment..."
+    python3 -m venv venv
+    echo "✓ Virtual environment created"
+fi
+
+# Activate virtual environment
+echo "Activating virtual environment..."
+if [[ "$PLATFORM" == "windows" ]]; then
+    source venv/Scripts/activate
+else
+    source venv/bin/activate
+fi
+echo "✓ Virtual environment activated"
+
+# Upgrade pip
+echo "Upgrading pip..."
+python -m pip install --upgrade pip --quiet
+echo "✓ pip upgraded"
+
+# Install requirements
+if [[ -f "requirements.txt" ]]; then
+    echo "Installing Python dependencies from requirements.txt..."
+    pip install -r requirements.txt
+    echo "✓ Python dependencies installed"
+else
+    echo "⚠ No requirements.txt found, skipping Python dependencies"
+fi
+
+# Check for CMake
+echo ""
+echo "Checking build dependencies..."
+if command -v cmake &> /dev/null; then
+    CMAKE_VERSION=$(cmake --version | head -n1)
+    echo "✓ Found $CMAKE_VERSION"
+else
+    echo "⚠ cmake not found (required for building C++ BA module)"
+    if [[ "$PLATFORM" == "linux" ]]; then
+        echo "  Install with: sudo apt-get install cmake"
+    else
+        echo "  Install from: https://cmake.org/download/"
+    fi
+fi
+
+# Check for C++ compiler
+if command -v g++ &> /dev/null; then
+    GCC_VERSION=$(g++ --version | head -n1)
+    echo "✓ Found $GCC_VERSION"
+elif command -v clang++ &> /dev/null; then
+    CLANG_VERSION=$(clang++ --version | head -n1)
+    echo "✓ Found $CLANG_VERSION"
+else
+    echo "⚠ C++ compiler not found (required for building BA module)"
+    if [[ "$PLATFORM" == "linux" ]]; then
+        echo "  Install with: sudo apt-get install build-essential"
+    else
+        echo "  Install Visual Studio with C++ tools or MinGW"
+    fi
+fi
+
+# Check for Ceres Solver
+echo ""
+echo "⚠ NOTE: Ceres Solver must be installed separately"
+if [[ "$PLATFORM" == "linux" ]]; then
+    echo "  Ubuntu/Debian: sudo apt-get install libceres-dev"
+    echo "  Or build from source: http://ceres-solver.org/installation.html"
+else
+    echo "  Windows: Follow instructions at http://ceres-solver.org/installation.html"
+    echo "  Or use vcpkg: vcpkg install ceres"
+fi
+
+echo ""
+echo "========================================="
+echo "  Setup Complete!"
+echo "========================================="
+echo ""
+echo "To activate the virtual environment:"
+if [[ "$PLATFORM" == "windows" ]]; then
+    echo "  source venv/Scripts/activate"
+else
+    echo "  source venv/bin/activate"
+fi
+echo ""
+echo "To run the bundle adjustment pipeline:"
+echo "  ./replicate           # Use Dogleg solver (default)"
+echo "  ./replicate -lm       # Use Levenberg-Marquardt solver"
+echo ""
+echo "To build the C++ BA module separately:"
+echo "  mkdir -p build && cd build"
+echo "  cmake .. && make"
+echo ""

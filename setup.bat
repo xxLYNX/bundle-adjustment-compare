@@ -5,6 +5,11 @@ echo =========================================
 echo   Bundle Adjustment Setup (Windows)
 echo =========================================
 echo.
+echo NOTE: For better Windows support, use PowerShell instead:
+echo   powershell -ExecutionPolicy Bypass -File setup.ps1
+echo.
+echo Continuing with batch script setup...
+echo.
 
 REM Check for Python
 python --version >nul 2>&1

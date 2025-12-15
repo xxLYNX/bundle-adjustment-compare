@@ -1,7 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$HOME/slam"
+# Parse command line arguments
+SOLVER="dogleg"  # Default solver
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -lm|--levenberg-marquardt)
+      SOLVER="lm"
+      shift
+      ;;
+    -dogleg|--dogleg)
+      SOLVER="dogleg"
+      shift
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Usage: $0 [-lm|--levenberg-marquardt] [-dogleg|--dogleg]"
+      exit 1
+      ;;
+  esac
+done
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS="$ROOT/scripts"
 SDK="$ROOT/robotcar-dataset-sdk-3.1"
 DATA="$ROOT/sample"
@@ -72,4 +92,6 @@ echo "  $OUTPUT/ba_robotcar_points.txt"
 echo "  $OUTPUT/ba_robotcar_observations.txt"
 echo "  $OUTPUT/ba_intrinsics_stereo_left.json"
 
-cd ~/slam && rm -rf build && mkdir build && cd build && cmake .. && make -j$(nproc) && ./ba_module && cd ..
+echo "[4/4] Running Bundle Adjustment with solver: $SOLVER"
+export BA_ROOT="$ROOT"
+cd "$ROOT" && rm -rf build && mkdir build && cd build && cmake .. && make -j$(nproc) && ./ba_module $SOLVER && cd ..

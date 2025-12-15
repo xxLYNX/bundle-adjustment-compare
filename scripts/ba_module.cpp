@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 #include <array>
+#include <chrono>
+#include <iomanip>
 
 // Very tiny JSON helper: assumes {"fx": ..., "fy": ..., "cx": ..., "cy": ...}
 struct Intrinsics {
@@ -182,7 +184,20 @@ bool LoadObservations(const std::string& path,
 int main(int argc, char** argv) {
     google::InitGoogleLogging(argv[0]);
 
-    std::string root = std::string(std::getenv("HOME")) + "/slam";
+    // Parse solver type from command line (default: dogleg)
+    std::string solver_type = "dogleg";
+    if (argc > 1) {
+        solver_type = argv[1];
+        if (solver_type != "lm" && solver_type != "dogleg") {
+            std::cerr << "Invalid solver type: " << solver_type << "\n";
+            std::cerr << "Usage: " << argv[0] << " [lm|dogleg]\n";
+            return 1;
+        }
+    }
+
+    // Get root directory from environment variable, fallback to HOME/slam
+    const char* ba_root_env = std::getenv("BA_ROOT");
+    std::string root = ba_root_env ? std::string(ba_root_env) : (std::string(std::getenv("HOME")) + "/slam");
     std::string out  = root + "/output";
 
     std::string poses_path = out + "/ba_robotcar_poses.txt";
@@ -250,10 +265,74 @@ int main(int argc, char** argv) {
     options.minimizer_progress_to_stdout = true;
     options.max_num_iterations = 100;  // Increased from 50
 
+    // Set trust region strategy based on command line argument
+    if (solver_type == "lm") {
+        options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
+        std::cout << "Using Levenberg-Marquardt solver\n";
+    } else {
+        options.trust_region_strategy_type = ceres::DOGLEG;
+        std::cout << "Using Dogleg solver\n";
+    }
+
+    // Start timing for BA optimization only
+    auto ba_start = std::chrono::high_resolution_clock::now();
+    
     ceres::Solver::Summary summary;
     ceres::Solve(options, &problem, &summary);
+    
+    auto ba_end = std::chrono::high_resolution_clock::now();
+    double ba_time_sec = std::chrono::duration<double>(ba_end - ba_start).count();
 
     std::cout << summary.BriefReport() << "\n";
+    
+    // Detailed Performance Analysis
+    std::cout << "\n========================================\n";
+    std::cout << "    BUNDLE ADJUSTMENT ANALYSIS\n";
+    std::cout << "========================================\n";
+    std::cout << "Solver: " << (solver_type == "lm" ? "Levenberg-Marquardt" : "Dogleg") << "\n";
+    std::cout << "BA Optimization Time: " << ba_time_sec << " seconds\n";
+    std::cout << "Total Solver Time: " << summary.total_time_in_seconds << " seconds\n";
+    std::cout << "\nProblem Size:\n";
+    std::cout << "  - Camera Poses: " << cameras.size() << "\n";
+    std::cout << "  - 3D Points: " << points.size() << "\n";
+    std::cout << "  - Observations: " << observations.size() << "\n";
+    std::cout << "  - Parameters: " << (cameras.size() * 7 + points.size() * 3) << "\n";
+    std::cout << "\nConvergence:\n";
+    std::cout << "  - Iterations: " << summary.num_successful_steps << " successful, "
+              << summary.num_unsuccessful_steps << " unsuccessful\n";
+    std::cout << "  - Initial Cost: " << summary.initial_cost << "\n";
+    std::cout << "  - Final Cost: " << summary.final_cost << "\n";
+    
+    double cost_reduction = summary.initial_cost - summary.final_cost;
+    double cost_reduction_pct = (cost_reduction / summary.initial_cost) * 100.0;
+    std::cout << "  - Cost Reduction: " << cost_reduction << " (" 
+              << std::fixed << std::setprecision(2) << cost_reduction_pct << "%)\n";
+    
+    // RMS reprojection error (2 residuals per observation)
+    double rms_error = std::sqrt(summary.final_cost / observations.size());
+    std::cout << "\nAccuracy:\n";
+    std::cout << "  - RMS Reprojection Error: " << std::fixed << std::setprecision(3) 
+              << rms_error << " pixels\n";
+    std::cout << "  - Average Error per Observation: " << std::fixed << std::setprecision(3)
+              << (summary.final_cost / observations.size()) << " pixels²\n";
+    
+    std::cout << "\nTermination: ";
+    if (summary.termination_type == ceres::CONVERGENCE) {
+        std::cout << "✓ CONVERGED (gradient/cost/parameter tolerance met)\n";
+    } else if (summary.termination_type == ceres::NO_CONVERGENCE) {
+        std::cout << "⚠ MAX ITERATIONS (solver could continue if given more iterations)\n";
+    } else if (summary.termination_type == ceres::USER_SUCCESS) {
+        std::cout << "✓ USER SUCCESS\n";
+    } else {
+        std::cout << "⚠ " << summary.termination_type << "\n";
+    }
+    
+    std::cout << "\nPerformance:\n";
+    std::cout << "  - Time per Iteration: " << std::fixed << std::setprecision(3)
+              << (ba_time_sec / summary.iterations.size()) * 1000.0 << " ms\n";
+    std::cout << "  - Iterations per Second: " << std::fixed << std::setprecision(2)
+              << (summary.iterations.size() / ba_time_sec) << "\n";
+    std::cout << "========================================\n";
 
     return 0;
 }

@@ -3,8 +3,8 @@
     BUNDLE ADJUSTMENT ANALYSIS
 ========================================
 Solver: Dogleg
-BA Optimization Time: 65.6978 seconds
-Total Solver Time: 65.6966 seconds
+BA Optimization Time: 63.9256 seconds
+Total Solver Time: 63.9243 seconds
 
 Problem Size:
   - Camera Poses: 50
@@ -21,7 +21,7 @@ Convergence:
 
 Memory Usage:
   - Peak Memory (BA): 0.00 MB
-  - Total Process Memory: 98.16 MB
+  - Total Process Memory: 98.96 MB
   - Cost Reduction: 395136.89 (89.54%)
 
 Accuracy:
@@ -31,6 +31,6 @@ Accuracy:
 Termination: ✓ CONVERGED (gradient/cost/parameter tolerance met)
 
 Performance:
-  - Time per Iteration: 393.400 ms
-  - Iterations per Second: 2.54
+  - Time per Iteration: 382.788 ms
+  - Iterations per Second: 2.61
 ========================================

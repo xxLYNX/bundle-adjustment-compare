@@ -26,6 +26,27 @@ def parse_ba_output(filepath):
             if match:
                 metrics['ba_time'] = float(match.group(1))
             
+            match = re.search(r'Total Solver Time: ([\d.]+) seconds', content)
+            if match:
+                metrics['total_solver_time'] = float(match.group(1))
+            
+            # Extract problem size
+            match = re.search(r'Camera Poses: (\d+)', content)
+            if match:
+                metrics['num_cameras'] = int(match.group(1))
+                
+            match = re.search(r'3D Points: (\d+)', content)
+            if match:
+                metrics['num_points'] = int(match.group(1))
+                
+            match = re.search(r'Observations: (\d+)', content)
+            if match:
+                metrics['num_observations'] = int(match.group(1))
+                
+            match = re.search(r'Parameters: (\d+)', content)
+            if match:
+                metrics['num_parameters'] = int(match.group(1))
+            
             # Extract iterations
             match = re.search(r'Total Iterations: (\d+)', content)
             if match:
@@ -47,16 +68,49 @@ def parse_ba_output(filepath):
             match = re.search(r'Final Cost: ([\d.e+-]+)', content)
             if match:
                 metrics['final_cost'] = float(match.group(1))
+                
+            # Extract cost reduction
+            match = re.search(r'Cost Reduction: ([\d.e+-]+) \(([\d.]+)%\)', content)
+            if match:
+                metrics['cost_reduction'] = float(match.group(1))
+                metrics['cost_reduction_percent'] = float(match.group(2))
             
-            # Extract RMS error
+            # Extract memory usage
+            match = re.search(r'Peak Memory \(BA\): ([\d.]+) MB', content)
+            if match:
+                metrics['peak_memory_mb'] = float(match.group(1))
+                
+            match = re.search(r'Total Process Memory: ([\d.]+) MB', content)
+            if match:
+                metrics['total_memory_mb'] = float(match.group(1))
+            
+            # Extract accuracy
             match = re.search(r'RMS Reprojection Error: ([\d.]+) pixels', content)
             if match:
                 metrics['rms_error'] = float(match.group(1))
+                
+            match = re.search(r'Average Error per Observation: ([\d.]+) pixels', content)
+            if match:
+                metrics['avg_error_per_obs'] = float(match.group(1))
+            # Try with ² if plain format didn't match
+            if 'avg_error_per_obs' not in metrics:
+                match = re.search(r'Average Error per Observation: ([\d.]+)', content)
+                if match:
+                    metrics['avg_error_per_obs'] = float(match.group(1))
             
-            # Extract time per iteration
+            # Extract performance
             match = re.search(r'Time per Iteration: ([\d.]+) ms', content)
             if match:
                 metrics['time_per_iter'] = float(match.group(1))
+                
+            match = re.search(r'Iterations per Second: ([\d.]+)', content)
+            if match:
+                metrics['iter_per_sec'] = float(match.group(1))
+            
+            # Extract termination reason
+            match = re.search(r'Termination: (.+?)(?:\n|$)', content)
+            if match:
+                metrics['termination'] = match.group(1).strip()
                 
     except Exception as e:
         print(f"Warning: Failed to parse {filepath}: {e}")
@@ -142,16 +196,37 @@ def run_benchmark(solver, num_runs, ba_module_path, output_dir):
     print(f"Completed {len(all_runs)}/{num_runs} successful runs")
     print(f"{'='*60}")
     
-    # Aggregate statistics
-    metrics_keys = ['ba_time', 'total_iterations', 'successful_steps', 
-                   'unsuccessful_steps', 'initial_cost', 'final_cost', 
-                   'rms_error', 'time_per_iter']
+    # Aggregate statistics for all metrics
+    metrics_keys = [
+        'ba_time', 'total_solver_time', 'total_iterations', 
+        'successful_steps', 'unsuccessful_steps', 
+        'initial_cost', 'final_cost', 'cost_reduction', 'cost_reduction_percent',
+        'peak_memory_mb', 'total_memory_mb',
+        'rms_error', 'avg_error_per_obs',
+        'time_per_iter', 'iter_per_sec'
+    ]
     
     aggregated = {}
     for key in metrics_keys:
         values = [run[key] for run in all_runs if key in run]
         if values:
             aggregated[key] = compute_statistics(values)
+    
+    # Add problem size (constant across runs)
+    if all_runs:
+        for key in ['num_cameras', 'num_points', 'num_observations', 'num_parameters']:
+            if key in all_runs[0]:
+                aggregated[key] = all_runs[0][key]
+        
+        # Add termination reason (should be same for all runs)
+        if 'termination' in all_runs[0]:
+            aggregated['termination'] = all_runs[0]['termination']
+    
+    # Calculate success rate
+    if 'successful_steps' in aggregated and 'total_iterations' in aggregated:
+        success_rate = (aggregated['successful_steps']['mean'] / 
+                       aggregated['total_iterations']['mean']) * 100
+        aggregated['success_rate'] = success_rate
     
     # Add raw data
     aggregated['raw_runs'] = all_runs
@@ -162,7 +237,7 @@ def run_benchmark(solver, num_runs, ba_module_path, output_dir):
 
 
 def print_summary(results):
-    """Print summary of benchmark results."""
+    """Print comprehensive summary of benchmark results."""
     print(f"\n{'='*60}")
     print("BENCHMARK SUMMARY")
     print(f"{'='*60}\n")
@@ -174,42 +249,85 @@ def print_summary(results):
         print(f"{solver_name.upper()} Solver ({data['num_runs']} runs):")
         print(f"{'─'*60}")
         
+        # Problem size
+        print(f"\nProblem Size:")
+        if 'num_cameras' in data:
+            print(f"  Cameras:       {data['num_cameras']}")
+        if 'num_points' in data:
+            print(f"  3D Points:     {data['num_points']}")
+        if 'num_observations' in data:
+            print(f"  Observations:  {data['num_observations']}")
+        if 'num_parameters' in data:
+            print(f"  Parameters:    {data['num_parameters']}")
+        
         # Timing
+        print(f"\nTiming:")
         if 'ba_time' in data:
             bt = data['ba_time']
             print(f"  BA Time:       {bt['mean']:.3f} ± {bt['std']:.3f} s  "
                   f"[{bt['min']:.3f}, {bt['max']:.3f}]")
+        if 'time_per_iter' in data:
+            tpi = data['time_per_iter']
+            print(f"  Time/Iter:     {tpi['mean']:.2f} ± {tpi['std']:.2f} ms")
+        if 'iter_per_sec' in data:
+            ips = data['iter_per_sec']
+            print(f"  Iter/Sec:      {ips['mean']:.2f}")
         
-        # Iterations
+        # Convergence
+        print(f"\nConvergence:")
         if 'total_iterations' in data:
             it = data['total_iterations']
-            print(f"  Iterations:    {it['mean']:.1f} ± {it['std']:.1f}  "
+            print(f"  Total Iters:   {it['mean']:.1f} ± {it['std']:.1f}  "
                   f"[{int(it['min'])}, {int(it['max'])}]")
+        if 'successful_steps' in data:
+            ss = data['successful_steps']
+            print(f"  Successful:    {ss['mean']:.1f} ± {ss['std']:.1f}")
+        if 'unsuccessful_steps' in data:
+            us = data['unsuccessful_steps']
+            print(f"  Unsuccessful:  {us['mean']:.1f} ± {us['std']:.1f}")
+        if 'success_rate' in data:
+            print(f"  Success Rate:  {data['success_rate']:.1f}%")
+        if 'termination' in data:
+            print(f"  Termination:   {data['termination']}")
         
-        # Final cost
+        # Cost function
+        print(f"\nCost Function:")
+        if 'initial_cost' in data:
+            ic = data['initial_cost']
+            print(f"  Initial Cost:  {ic['mean']:.2e}")
         if 'final_cost' in data:
             fc = data['final_cost']
             print(f"  Final Cost:    {fc['mean']:.2e} ± {fc['std']:.2e}  "
                   f"[{fc['min']:.2e}, {fc['max']:.2e}]")
+        if 'cost_reduction_percent' in data:
+            cr = data['cost_reduction_percent']
+            print(f"  Cost Reduction: {cr['mean']:.2f}%")
         
-        # RMS error
+        # Accuracy
+        print(f"\nAccuracy:")
         if 'rms_error' in data:
             rms = data['rms_error']
             print(f"  RMS Error:     {rms['mean']:.3f} ± {rms['std']:.3f} px  "
                   f"[{rms['min']:.3f}, {rms['max']:.3f}]")
+        if 'avg_error_per_obs' in data:
+            avg = data['avg_error_per_obs']
+            print(f"  Avg Error/Obs: {avg['mean']:.3f} ± {avg['std']:.3f} px²")
         
-        # Success rate
-        if 'successful_steps' in data and 'total_iterations' in data:
-            ss = data['successful_steps']
-            ti = data['total_iterations']
-            success_rate = (ss['mean'] / ti['mean']) * 100 if ti['mean'] > 0 else 0
-            print(f"  Success Rate:  {success_rate:.1f}%")
+        # Memory
+        print(f"\nMemory Usage:")
+        if 'peak_memory_mb' in data:
+            pm = data['peak_memory_mb']
+            print(f"  Peak (BA):     {pm['mean']:.2f} MB")
+        if 'total_memory_mb' in data:
+            tm = data['total_memory_mb']
+            print(f"  Total Process: {tm['mean']:.2f} ± {tm['std']:.2f} MB  "
+                  f"[{tm['min']:.2f}, {tm['max']:.2f}]")
         
         print()
 
 
 def compare_solvers(results):
-    """Compare two solvers if both present."""
+    """Comprehensive comparison between two solvers."""
     if 'lm' not in results or 'dogleg' not in results:
         return
     
@@ -220,30 +338,91 @@ def compare_solvers(results):
     lm = results['lm']
     dog = results['dogleg']
     
-    # Time comparison
+    # Performance comparison
+    print("Performance:")
     if 'ba_time' in lm and 'ba_time' in dog:
         lm_time = lm['ba_time']['mean']
         dog_time = dog['ba_time']['mean']
         speedup = dog_time / lm_time
         faster = "LM" if speedup > 1 else "Dogleg"
         percent = abs(speedup - 1) * 100
-        print(f"Speed: {faster} is {percent:.1f}% faster")
+        print(f"  Speed:         {faster} is {percent:.1f}% faster ({lm_time:.2f}s vs {dog_time:.2f}s)")
     
-    # Iteration comparison
+    if 'time_per_iter' in lm and 'time_per_iter' in dog:
+        lm_tpi = lm['time_per_iter']['mean']
+        dog_tpi = dog['time_per_iter']['mean']
+        faster = "LM" if lm_tpi < dog_tpi else "Dogleg"
+        percent = abs((lm_tpi - dog_tpi) / max(lm_tpi, dog_tpi)) * 100
+        print(f"  Time/Iter:     {faster} is {percent:.1f}% faster ({lm_tpi:.2f}ms vs {dog_tpi:.2f}ms)")
+    
+    # Convergence comparison
+    print(f"\nConvergence:")
     if 'total_iterations' in lm and 'total_iterations' in dog:
         lm_iter = lm['total_iterations']['mean']
         dog_iter = dog['total_iterations']['mean']
         diff = abs(lm_iter - dog_iter)
         fewer = "LM" if lm_iter < dog_iter else "Dogleg"
-        print(f"Iterations: {fewer} uses {diff:.1f} fewer iterations on average")
+        percent = (diff / max(lm_iter, dog_iter)) * 100
+        print(f"  Iterations:    {fewer} uses {diff:.0f} ({percent:.1f}%) fewer ({int(lm_iter)} vs {int(dog_iter)})")
     
-    # Cost comparison
+    if 'success_rate' in lm and 'success_rate' in dog:
+        lm_sr = lm['success_rate']
+        dog_sr = dog['success_rate']
+        better = "LM" if lm_sr > dog_sr else "Dogleg"
+        print(f"  Success Rate:  {better} accepts more steps ({lm_sr:.1f}% vs {dog_sr:.1f}%)")
+    
+    # Quality comparison
+    print(f"\nSolution Quality:")
     if 'final_cost' in lm and 'final_cost' in dog:
         lm_cost = lm['final_cost']['mean']
         dog_cost = dog['final_cost']['mean']
         better = "LM" if lm_cost < dog_cost else "Dogleg"
         percent = abs((lm_cost - dog_cost) / max(lm_cost, dog_cost)) * 100
-        print(f"Final Cost: {better} achieves {percent:.1f}% better cost")
+        print(f"  Final Cost:    {better} achieves {percent:.1f}% better ({lm_cost:.2e} vs {dog_cost:.2e})")
+    
+    if 'rms_error' in lm and 'rms_error' in dog:
+        lm_rms = lm['rms_error']['mean']
+        dog_rms = dog['rms_error']['mean']
+        better = "LM" if lm_rms < dog_rms else "Dogleg"
+        percent = abs((lm_rms - dog_rms) / max(lm_rms, dog_rms)) * 100
+        print(f"  RMS Error:     {better} is {percent:.1f}% better ({lm_rms:.3f}px vs {dog_rms:.3f}px)")
+    
+    # Resource comparison
+    print(f"\nResource Usage:")
+    if 'total_memory_mb' in lm and 'total_memory_mb' in dog:
+        lm_mem = lm['total_memory_mb']['mean']
+        dog_mem = dog['total_memory_mb']['mean']
+        efficient = "LM" if lm_mem < dog_mem else "Dogleg"
+        ratio = max(lm_mem, dog_mem) / min(lm_mem, dog_mem)
+        print(f"  Memory:        {efficient} uses {ratio:.1f}x less ({lm_mem:.1f}MB vs {dog_mem:.1f}MB)")
+    
+    # Overall recommendation
+    print(f"\nOverall Assessment:")
+    
+    # Count wins
+    lm_wins = 0
+    dog_wins = 0
+    
+    if 'ba_time' in lm and 'ba_time' in dog:
+        if lm['ba_time']['mean'] < dog['ba_time']['mean']:
+            lm_wins += 1
+        else:
+            dog_wins += 1
+    
+    if 'final_cost' in lm and 'final_cost' in dog:
+        if lm['final_cost']['mean'] < dog['final_cost']['mean']:
+            lm_wins += 2  # Weight quality higher
+        else:
+            dog_wins += 2
+    
+    if 'total_iterations' in lm and 'total_iterations' in dog:
+        if lm['total_iterations']['mean'] < dog['total_iterations']['mean']:
+            lm_wins += 1
+        else:
+            dog_wins += 1
+    
+    winner = "Levenberg-Marquardt" if lm_wins > dog_wins else "Dogleg"
+    print(f"  Recommended:   {winner} for this problem configuration")
     
     print()
 

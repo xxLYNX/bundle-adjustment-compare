@@ -1,0 +1,36 @@
+
+========================================
+    BUNDLE ADJUSTMENT ANALYSIS
+========================================
+Solver: Dogleg
+BA Optimization Time: 65.6978 seconds
+Total Solver Time: 65.6966 seconds
+
+Problem Size:
+  - Camera Poses: 50
+  - 3D Points: 12124
+  - Observations: 15962
+  - Parameters: 36722
+
+Convergence:
+  - Total Iterations: 167
+  - Successful Steps: 112
+  - Unsuccessful Steps: 55
+  - Initial Cost: 441302
+  - Final Cost: 46164.6
+
+Memory Usage:
+  - Peak Memory (BA): 0.00 MB
+  - Total Process Memory: 98.16 MB
+  - Cost Reduction: 395136.89 (89.54%)
+
+Accuracy:
+  - RMS Reprojection Error: 1.701 pixels
+  - Average Error per Observation: 2.892 pixels²
+
+Termination: ✓ CONVERGED (gradient/cost/parameter tolerance met)
+
+Performance:
+  - Time per Iteration: 393.400 ms
+  - Iterations per Second: 2.54
+========================================

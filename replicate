@@ -32,9 +32,9 @@ OUTPUT="$ROOT/output"
 mkdir -p "$OUTPUT"
 
 # Shared experiment config
-DURATION_S=10.0       # seconds of data from start of traversal
+DURATION_S=50.0       # seconds of data from start of traversal
 FRAME_STRIDE=2        # use every Nth camera frame within that window
-MAX_FRAMES=10         # cap on number of frames
+MAX_FRAMES=50         # cap on number of frames
 LEFT_STREAM="stereo/left"
 RIGHT_STREAM="stereo/right"
 

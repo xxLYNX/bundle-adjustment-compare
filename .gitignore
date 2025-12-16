@@ -4,8 +4,7 @@ build/
 *.so
 *.a
 
-# Output data
-output/
+# Output data (large files only)
 pointcloud.npz
 *.npz
 

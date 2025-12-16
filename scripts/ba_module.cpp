@@ -10,6 +10,8 @@
 #include <array>
 #include <chrono>
 #include <iomanip>
+#include <sys/resource.h>
+#include <unistd.h>
 
 // Very tiny JSON helper: assumes {"fx": ..., "fy": ..., "cx": ..., "cy": ...}
 struct Intrinsics {
@@ -66,6 +68,13 @@ struct ReprojectionError {
     double u_meas_, v_meas_;
     double fx_, fy_, cx_, cy_;
 };
+
+// Get current memory usage in MB
+double GetMemoryUsageMB() {
+    struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);
+    return usage.ru_maxrss / 1024.0;  // Convert KB to MB
+}
 
 bool LoadIntrinsics(const std::string& path, Intrinsics& K) {
     std::ifstream in(path);
@@ -263,7 +272,8 @@ int main(int argc, char** argv) {
     ceres::Solver::Options options;
     options.linear_solver_type = ceres::SPARSE_SCHUR;
     options.minimizer_progress_to_stdout = true;
-    options.max_num_iterations = 100;  // Increased from 50
+    options.max_num_iterations = 500;
+    // Using Ceres default tolerances for realistic comparison
 
     // Set trust region strategy based on command line argument
     if (solver_type == "lm") {
@@ -274,6 +284,9 @@ int main(int argc, char** argv) {
         std::cout << "Using Dogleg solver\n";
     }
 
+    // Measure memory before optimization
+    double mem_before_mb = GetMemoryUsageMB();
+    
     // Start timing for BA optimization only
     auto ba_start = std::chrono::high_resolution_clock::now();
     
@@ -282,57 +295,122 @@ int main(int argc, char** argv) {
     
     auto ba_end = std::chrono::high_resolution_clock::now();
     double ba_time_sec = std::chrono::duration<double>(ba_end - ba_start).count();
+    
+    // Measure memory after optimization
+    double mem_after_mb = GetMemoryUsageMB();
+    double mem_used_mb = mem_after_mb - mem_before_mb;
 
     std::cout << summary.BriefReport() << "\n";
     
+    // Write detailed analysis to file
+    std::string output_filename = out + "/" + solver_type + "_BA.txt";
+    std::ofstream analysis_file(output_filename);
+    if (!analysis_file) {
+        std::cerr << "Warning: Could not write analysis to " << output_filename << "\n";
+    }
+    
+    // Helper lambda to write to both stdout and file
+    auto write_line = [&](const std::string& line) {
+        std::cout << line;
+        if (analysis_file) analysis_file << line;
+    };
+    
     // Detailed Performance Analysis
-    std::cout << "\n========================================\n";
-    std::cout << "    BUNDLE ADJUSTMENT ANALYSIS\n";
-    std::cout << "========================================\n";
-    std::cout << "Solver: " << (solver_type == "lm" ? "Levenberg-Marquardt" : "Dogleg") << "\n";
-    std::cout << "BA Optimization Time: " << ba_time_sec << " seconds\n";
-    std::cout << "Total Solver Time: " << summary.total_time_in_seconds << " seconds\n";
-    std::cout << "\nProblem Size:\n";
-    std::cout << "  - Camera Poses: " << cameras.size() << "\n";
-    std::cout << "  - 3D Points: " << points.size() << "\n";
-    std::cout << "  - Observations: " << observations.size() << "\n";
-    std::cout << "  - Parameters: " << (cameras.size() * 7 + points.size() * 3) << "\n";
-    std::cout << "\nConvergence:\n";
-    std::cout << "  - Iterations: " << summary.num_successful_steps << " successful, "
-              << summary.num_unsuccessful_steps << " unsuccessful\n";
-    std::cout << "  - Initial Cost: " << summary.initial_cost << "\n";
-    std::cout << "  - Final Cost: " << summary.final_cost << "\n";
+    write_line("\n========================================\n");
+    write_line("    BUNDLE ADJUSTMENT ANALYSIS\n");
+    write_line("========================================\n");
+    
+    std::ostringstream oss;
+    oss << "Solver: " << (solver_type == "lm" ? "Levenberg-Marquardt" : "Dogleg") << "\n";
+    write_line(oss.str()); oss.str("");
+    
+    oss << "BA Optimization Time: " << ba_time_sec << " seconds\n";
+    write_line(oss.str()); oss.str("");
+    
+    oss << "Total Solver Time: " << summary.total_time_in_seconds << " seconds\n";
+    write_line(oss.str()); oss.str("");
+    
+    write_line("\nProblem Size:\n");
+    oss << "  - Camera Poses: " << cameras.size() << "\n";
+    write_line(oss.str()); oss.str("");
+    
+    oss << "  - 3D Points: " << points.size() << "\n";
+    write_line(oss.str()); oss.str("");
+    
+    oss << "  - Observations: " << observations.size() << "\n";
+    write_line(oss.str()); oss.str("");
+    
+    oss << "  - Parameters: " << (cameras.size() * 7 + points.size() * 3) << "\n";
+    write_line(oss.str()); oss.str("");
+    
+    write_line("\nConvergence:\n");
+    int total_iters = summary.num_successful_steps + summary.num_unsuccessful_steps;
+    oss << "  - Total Iterations: " << total_iters << "\n";
+    write_line(oss.str()); oss.str("");
+    
+    oss << "  - Successful Steps: " << summary.num_successful_steps << "\n";
+    write_line(oss.str()); oss.str("");
+    
+    oss << "  - Unsuccessful Steps: " << summary.num_unsuccessful_steps << "\n";
+    write_line(oss.str()); oss.str("");
+    
+    oss << "  - Initial Cost: " << summary.initial_cost << "\n";
+    write_line(oss.str()); oss.str("");
+    
+    oss << "  - Final Cost: " << summary.final_cost << "\n";
+    write_line(oss.str()); oss.str("");
+    
+    write_line("\nMemory Usage:\n");
+    oss << "  - Peak Memory (BA): " << std::fixed << std::setprecision(2) << mem_used_mb << " MB\n";
+    write_line(oss.str()); oss.str("");
+    
+    oss << "  - Total Process Memory: " << std::fixed << std::setprecision(2) << mem_after_mb << " MB\n";
+    write_line(oss.str()); oss.str("");
     
     double cost_reduction = summary.initial_cost - summary.final_cost;
     double cost_reduction_pct = (cost_reduction / summary.initial_cost) * 100.0;
-    std::cout << "  - Cost Reduction: " << cost_reduction << " (" 
-              << std::fixed << std::setprecision(2) << cost_reduction_pct << "%)\n";
+    oss << "  - Cost Reduction: " << cost_reduction << " (" 
+        << std::fixed << std::setprecision(2) << cost_reduction_pct << "%)\n";
+    write_line(oss.str()); oss.str("");
     
     // RMS reprojection error (2 residuals per observation)
     double rms_error = std::sqrt(summary.final_cost / observations.size());
-    std::cout << "\nAccuracy:\n";
-    std::cout << "  - RMS Reprojection Error: " << std::fixed << std::setprecision(3) 
-              << rms_error << " pixels\n";
-    std::cout << "  - Average Error per Observation: " << std::fixed << std::setprecision(3)
-              << (summary.final_cost / observations.size()) << " pixels²\n";
+    write_line("\nAccuracy:\n");
+    oss << "  - RMS Reprojection Error: " << std::fixed << std::setprecision(3) 
+        << rms_error << " pixels\n";
+    write_line(oss.str()); oss.str("");
     
-    std::cout << "\nTermination: ";
+    oss << "  - Average Error per Observation: " << std::fixed << std::setprecision(3)
+        << (summary.final_cost / observations.size()) << " pixels²\n";
+    write_line(oss.str()); oss.str("");
+    
+    write_line("\nTermination: ");
     if (summary.termination_type == ceres::CONVERGENCE) {
-        std::cout << "✓ CONVERGED (gradient/cost/parameter tolerance met)\n";
+        write_line("✓ CONVERGED (gradient/cost/parameter tolerance met)\n");
     } else if (summary.termination_type == ceres::NO_CONVERGENCE) {
-        std::cout << "⚠ MAX ITERATIONS (solver could continue if given more iterations)\n";
+        write_line("⚠ MAX ITERATIONS (solver could continue if given more iterations)\n");
     } else if (summary.termination_type == ceres::USER_SUCCESS) {
-        std::cout << "✓ USER SUCCESS\n";
+        write_line("✓ USER SUCCESS\n");
     } else {
-        std::cout << "⚠ " << summary.termination_type << "\n";
+        oss << "⚠ " << summary.termination_type << "\n";
+        write_line(oss.str()); oss.str("");
     }
     
-    std::cout << "\nPerformance:\n";
-    std::cout << "  - Time per Iteration: " << std::fixed << std::setprecision(3)
-              << (ba_time_sec / summary.iterations.size()) * 1000.0 << " ms\n";
-    std::cout << "  - Iterations per Second: " << std::fixed << std::setprecision(2)
-              << (summary.iterations.size() / ba_time_sec) << "\n";
-    std::cout << "========================================\n";
+    write_line("\nPerformance:\n");
+    oss << "  - Time per Iteration: " << std::fixed << std::setprecision(3)
+        << (ba_time_sec / total_iters) * 1000.0 << " ms\n";
+    write_line(oss.str()); oss.str("");
+    
+    oss << "  - Iterations per Second: " << std::fixed << std::setprecision(2)
+        << (total_iters / ba_time_sec) << "\n";
+    write_line(oss.str()); oss.str("");
+    
+    write_line("========================================\n");
+    
+    if (analysis_file) {
+        analysis_file.close();
+        std::cout << "\nAnalysis written to: " << output_filename << "\n";
+    }
 
     return 0;
 }

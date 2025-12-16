@@ -1,0 +1,36 @@
+
+========================================
+    BUNDLE ADJUSTMENT ANALYSIS
+========================================
+Solver: Levenberg-Marquardt
+BA Optimization Time: 130.81 seconds
+Total Solver Time: 130.809 seconds
+
+Problem Size:
+  - Camera Poses: 50
+  - 3D Points: 12124
+  - Observations: 15962
+  - Parameters: 36722
+
+Convergence:
+  - Total Iterations: 353
+  - Successful Steps: 216
+  - Unsuccessful Steps: 137
+  - Initial Cost: 441302
+  - Final Cost: 55897.7
+
+Memory Usage:
+  - Peak Memory (BA): 0.00 MB
+  - Total Process Memory: 29.04 MB
+  - Cost Reduction: 385403.78 (87.33%)
+
+Accuracy:
+  - RMS Reprojection Error: 1.871 pixels
+  - Average Error per Observation: 3.502 pixels²
+
+Termination: ✓ CONVERGED (gradient/cost/parameter tolerance met)
+
+Performance:
+  - Time per Iteration: 370.566 ms
+  - Iterations per Second: 2.70
+========================================

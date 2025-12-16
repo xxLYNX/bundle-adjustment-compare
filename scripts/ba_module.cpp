@@ -412,6 +412,45 @@ int main(int argc, char** argv) {
         std::cout << "\nAnalysis written to: " << output_filename << "\n";
     }
 
+    // Write optimized poses and points
+    std::string opt_poses_path = out + "/" + solver_type + "_poses_optimized.txt";
+    std::string opt_points_path = out + "/" + solver_type + "_points_optimized.txt";
+    
+    std::ofstream poses_file(opt_poses_path);
+    if (poses_file) {
+        for (size_t i = 0; i < cameras.size(); ++i) {
+            // Write in same format as input: frame_id tx ty tz qx qy qz qw
+            // Camera array is: [qw, qx, qy, qz, tx, ty, tz]
+            poses_file << i << " "
+                      << std::setprecision(12) << cameras[i][4] << " "  // tx
+                      << cameras[i][5] << " "  // ty
+                      << cameras[i][6] << " "  // tz
+                      << cameras[i][1] << " "  // qx
+                      << cameras[i][2] << " "  // qy
+                      << cameras[i][3] << " "  // qz
+                      << cameras[i][0] << "\n"; // qw
+        }
+        poses_file.close();
+        std::cout << "Optimized poses written to: " << opt_poses_path << "\n";
+    } else {
+        std::cerr << "Warning: Could not write optimized poses\n";
+    }
+    
+    std::ofstream points_file(opt_points_path);
+    if (points_file) {
+        for (size_t i = 0; i < points.size(); ++i) {
+            points_file << i;
+            for (int j = 0; j < 3; ++j) {
+                points_file << " " << std::setprecision(12) << points[i][j];
+            }
+            points_file << "\n";
+        }
+        points_file.close();
+        std::cout << "Optimized points written to: " << opt_points_path << "\n";
+    } else {
+        std::cerr << "Warning: Could not write optimized points\n";
+    }
+
     return 0;
 }
 
